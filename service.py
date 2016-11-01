@@ -133,6 +133,15 @@ class Test(Resource):
 
 		# print open("game.txt").read()
 
+class Permission(Resource):
+    def post(self):
+        
+        return True
+    def get(self):
+        documentId = args['id']
+        result = mongo.db.filetestonly.document.find_one({'documentId':  documentId})
+        return result
+
 class Index(Resource):
     def get(self):
         return "Hello From The Other Side!"
