@@ -1,0 +1,1 @@
+mongod --dbpath /home/perawith/Database/ --port 27020
