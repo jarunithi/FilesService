@@ -4,6 +4,7 @@ from flask import Flask, jsonify, url_for, redirect, request
 from flask_pymongo import PyMongo
 from flask_restful import Api, Resource
 from flask import Response 
+from flask_cors import CORS, cross_origin
 from bson import json_util
 from bson.objectid import ObjectId
 from werkzeug.routing import BaseConverter
@@ -14,6 +15,8 @@ import gridfs
 import io
 
 app = Flask(__name__)
+CORS(app)
+# app.config['CORS_HEADERS'] = 'Content-Type'
 app.config["MONGO_DBNAME"] = "filetest"
 app.config['MONGO_HOST'] = 'localhost'
 app.config['MONGO_PORT'] = 27020
@@ -25,47 +28,52 @@ APP_URL = "http://127.0.0.1:5000"
 #     document = client.db.collection.find_one({'_id': ObjectId(post_id)})
 
 class RegexConverter(BaseConverter):
-    def __init__(self, url_map, *items):
-        super(RegexConverter, self).__init__(url_map)
-        self.regex = items[0]
+	def __init__(self, url_map, *items):
+		super(RegexConverter, self).__init__(url_map)
+		self.regex = items[0]
 app.url_map.converters['regex'] = RegexConverter
 
 class Files(Resource):
-    def get(self):
-        json_results = []
-    	for result in mongo.db.filetestonly.files.find():
-      		json_results.append(result)
-    	# return jsonify({"response": json_results})
-    	return Response( json_util.dumps({'response' : json_results}),mimetype='application/json')
+	def get(self):
+		json_results = []
+		for result in mongo.db.filetestonly.files.find():
+			json_results.append(result)
+		# return jsonify({"response": json_results})
+		return Response( json_util.dumps({'response' : json_results}),mimetype='application/json')
 
 class Delete(Resource):
-    def get(self, id=None):
-        if id:
-        	mongo.db.filetestonly.files.delete({'_id': ObjectId(id)});
-        	mongo.db.filetestonly.chunks.delete({'files_id': ObjectId(id)});
-        	return "File Deleted"
-        else :
-    		return "Error ID Not Found!!"
+	def get(self, id=None):
+		if id:
+			db = MongoClient().myDB
+			fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+			fs.delete(id)
+			return "File Deleted"
+		else :
+			return "Error ID Not Found!!"
 
 class DeleteByDocumentId(Resource):
-    def get(self, id=None):
-        if id:
-        	for result in mongo.db.filetestonly.files.find():
-        		mongo.db.filetestonly.chunks.delete_one({'files_id': ObjectId(result['_id'])});
-        	mongo.db.filetestonly.files.delete_many({'documentId': id});
-        	return "Document Files Deleted"
-        else :
-    		return "Error Document ID Not Found!!"
+	def get(self, id=None):
+		db = MongoClient().myDB
+		fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+		if id:
+			for result in mongo.db.filetestonly.files.find({'documentId': id}):
+				fs.delete(result['_id'])
+			return "Document Files Deleted"
+		else :
+			return "Error Document ID Not Found!!"
 
 class DeleteAllByDocumentId(Resource):
-    def get(self, id=None):
-        if id:
-        	for result in mongo.db.filetestonly.files.find():
-        		mongo.db.filetestonly.chunks.delete_one({'files_id': ObjectId(result['_id'])});
-        	mongo.db.filetestonly.files.delete_many({'documentId': id});
-        	return "Document Files Deleted"
-        else :
-    		return "Error Document ID Not Found!!"
+	def get(self, id=None):
+		db = MongoClient().myDB
+		fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+		if id:
+			for result in mongo.db.filetestonly.files.find({'documentId': id}):
+				fs.delete(result['_id'])
+			# 	mongo.db.filetestonly.chunks.delete_one({'files_id': ObjectId(result['_id'])});
+			# mongo.db.filetestonly.files.delete_many({'documentId': id});
+			return "Document Files Deleted"
+		else :
+			return "Error Document ID Not Found!!"
 
 class DownloadById(Resource):
 	def get(self, id=None):
@@ -73,22 +81,39 @@ class DownloadById(Resource):
 		# print (id)
 		# print (ObjectId(id))
 		if id:
+			db = MongoClient().myDB
+			fs = gridfs.GridFS( mongo.db, collection='filetestonly')
 			file = mongo.db.filetestonly.files.find_one({'_id':  ObjectId(id)})
-			binary = mongo.db.filetestonly.chunks.find_one({'files_id':  ObjectId(id)})
-
-			# print (file['filename'])
-			# print (binary['data'])
 			# print "---------------------------------"
-    		response = Response(binary['data'])
-    		response.headers['Content-Disposition'] = 'attachment; filename='+file['filename']
-    		return response
+			# fs.get(ObjectId(id)).read()
+			response = Response(fs.get(ObjectId(id)).read())
+			# response = Response(binary['data'])
+			response.headers['Content-Disposition'] = 'attachment; filename='+file['filename']
+			return response
 
 class Upload(Resource):
-	def post(self, files=None, documentId=None):
-		if file:
-			mongo.save_file(filename, request.files['file'])
+	def post(self):
+		print request.args
+		print request.files
+		if request.files['file']:
+			# if request.args['documentId']:
+			# 	documentId = request.args['documentId']
+			# else :
+			# 	print "No DocumentID"
+			# 	return "Error No documentID"
+			
+			# mongo.save_file(request.files['file'].filename, request.files['file'])
+			
+			file = request.files['file']
+			db = MongoClient().myDB
+			fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+			# fileID = fs.put( file,filename=file.filename ,aliase=None, contentType=None,documentId=documentId)
+			fileID = fs.put( file,filename=file.filename ,aliase=None, contentType=None,documentId='12345')
+			out = fs.get(fileID)
+			print out
 			return "Saved"
 		else :
+			print "Failed"
 			return "Failed"
 
 class FileDetail(Resource):
@@ -104,17 +129,24 @@ class AllFileDetail(Resource):
 			return Response( json_util.dumps({'response' : result}),mimetype='application/json')
 
 class Chunks(Resource):
-    def get(self):
-        json_results = []
-    	for result in mongo.db.filetestonly.chunks.find():
-      		json_results.append(result)
-    	# return jsonify({"response": json_results})
-    	return Response( json_util.dumps({'response' : json_results}),mimetype='application/json')
+	def get(self):
+		json_results = []
+		for result in mongo.db.filetestonly.chunks.find():
+			json_results.append(result)
+		# return jsonify({"response": json_results})
+		return Response( json_util.dumps({'response' : json_results}),mimetype='application/json')
 
 class Copy(Resource):
 	def get(self, fromId=None, toId=None):
 		for result in mongo.db.filetestonly.files.find({'documentId':  request.args['fromId']}):
-			print result
+			db = MongoClient().myDB
+			fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+			file = mongo.db.filetestonly.files.find_one({'_id':  ObjectId(result['_id'])})
+			# print "---------------------------------"
+			newFileD = fs.put(fs.get(ObjectId(result['_id'])),filename=result['filename'],aliase=None, contentType=None,documentId=request.args['toId'])
+			print newFileID
+		return "Copy Done"
+		
 
 
 class Test(Resource):
@@ -122,29 +154,35 @@ class Test(Resource):
 		print "---------------------------------"
 		print request
 		print request.data
+		print request.files['file'].filename
 		print "---------------------------------"
+		return "Called"
+
 	def get(self):
 		# savedfile = mongo.save_file("game.txt",open("game.txt"),base='filetestonly',documentId=ObjectId('57efdfe0d4c6272e24b7b906'))
 		# db = MongoClient().myDB
-		fs = gridfs.GridFS( mongo.db, collection='filetestonly')
-		fileID = fs.put( open( r'game.txt', 'r') ,filename='game.txt' ,aliase=None, contentType=None,documentId='57efdfe0d4c6272e24b7b906')
-		out = fs.get(fileID)
-		print out.length
-
+		# fs = gridfs.GridFS( mongo.db, collection='filetestonly')
+		# fileID = fs.put( open( r'game.txt', 'r') ,filename='game.txt' ,aliase=None, contentType=None,documentId='57efdfe0d4c6272e24b7b906')
+		# out = fs.get(fileID)
+		# print out.length
 		# print open("game.txt").read()
+		print "Get Test"
+		return "Nope"
 
 class Permission(Resource):
-    def post(self):
-        
-        return True
-    def get(self):
-        documentId = args['id']
-        result = mongo.db.filetestonly.document.find_one({'documentId':  documentId})
-        return result
+	def post(self,fileId,person):
+		
+		return True
+
+	def get(self):
+		fileId = request.args['id']
+		result = mongo.db.filetestonly.document.find_one({'fileId':  fileId})
+		return result
+
 
 class Index(Resource):
-    def get(self):
-        return "Hello From The Other Side!"
+	def get(self):
+		return "Hello From The Other Side!"
 
 
 api = Api(app)
@@ -153,10 +191,9 @@ api.add_resource(Test, "/test", endpoint="test")
 api.add_resource(Files, "/files", endpoint="files")
 api.add_resource(Copy, "/copy", endpoint="copy")
 api.add_resource(Chunks, "/chunks", endpoint="chunks")
+api.add_resource(Upload, "/upload", endpoint="upload")
 api.add_resource(DownloadById, "/downloadById/<regex(\"[a-zA-Z0-9]{1,30}\"):id>", endpoint="download")
 api.add_resource(FileDetail, "/fileDetail/documentId/<regex(\"[a-zA-Z0-9]{1,30}\"):documentId>", endpoint="fileDetail")
-# api.add_resource(Student, "/api/<string:registration>", endpoint="registration")
-# api.add_resource(Student, "/api/department/<string:department>", endpoint="department")
 
 if __name__ == "__main__":
-    app.run(debug=True)
+	app.run(debug=True)
