@@ -15,3 +15,7 @@ pip install -r requirements.txt
 ```sh
 python service.py
 ```
+
+## Note(Related api doc)
+Pymongo : https://flask-pymongo.readthedocs.io/en/latest/
+Mongo GridFS : http://api.mongodb.com/python/current/api/gridfs/
